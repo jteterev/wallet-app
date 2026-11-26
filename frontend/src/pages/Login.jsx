@@ -13,31 +13,44 @@ export default function Login() {
   const navigate = useNavigate();
   const location = useLocation();
   const redirectTo = location.state?.from || "/expenses";
-  const [email, setEmail] = useState("ivanova");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [errors, setErrors] = useState(EMPTY_ERRORS);
+  const [formError, setFormError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   function clearError(field) {
     setErrors((prev) => (prev[field] ? { ...prev, [field]: false } : prev));
+    setFormError("");
   }
 
   async function handleSubmit(event) {
     event.preventDefault();
 
+    // Значения берём из самих полей: браузер может подставить их автозаполнением,
+    // и тогда состояние React отстаёт от того, что видит пользователь.
+    const data = new FormData(event.currentTarget);
+    const currentEmail = String(data.get("email") ?? email);
+    const currentPassword = String(data.get("password") ?? password);
+
+    setEmail(currentEmail);
+    setPassword(currentPassword);
+
     const nextErrors = {
-      email: !email.trim(),
-      password: !password.trim(),
+      email: !currentEmail.trim(),
+      password: !currentPassword.trim(),
     };
     setErrors(nextErrors);
+    setFormError("");
     if (nextErrors.email || nextErrors.password) return;
 
     setSubmitting(true);
     try {
-      await login(email, password);
+      await login(currentEmail, currentPassword);
       navigate(redirectTo, { replace: true });
-    } catch {
+    } catch (error) {
       setErrors({ email: true, password: true });
+      setFormError(error?.message ?? "");
     } finally {
       setSubmitting(false);
     }
@@ -79,8 +92,8 @@ export default function Login() {
             />
             {hasErrors && (
               <div className="error-text" role="alert">
-                УПС! Введенные вами данные некорректны. Введите данные корректно
-                и повторите попытку.
+                {formError ||
+                  "УПС! Введенные вами данные некорректны. Введите данные корректно и повторите попытку."}
               </div>
             )}
             <PrimaryButton full type="submit" disabled={submitting}>

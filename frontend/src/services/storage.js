@@ -36,11 +36,13 @@ function createError(message, status) {
 }
 
 function getUsers() {
-  return readJSON(USERS_KEY, []);
+  const users = readJSON(USERS_KEY, []);
+  return Array.isArray(users) ? users : [];
 }
 
 function getExpenses() {
-  return readJSON(EXPENSES_KEY, []);
+  const expenses = readJSON(EXPENSES_KEY, []);
+  return Array.isArray(expenses) ? expenses : [];
 }
 
 function toPublicUser({ id, name, email }) {
@@ -50,8 +52,11 @@ function toPublicUser({ id, name, email }) {
 export function storageRegister(name, email, password) {
   const users = getUsers();
   const normalizedEmail = String(email).trim().toLowerCase();
+  // Пробелы по краям не считаем частью пароля — иначе «неверный пароль» появляется
+  // из-за копирования с лишним пробелом.
+  const normalizedPassword = String(password).trim();
 
-  if (users.some((user) => String(user.email).toLowerCase() === normalizedEmail)) {
+  if (users.some((user) => String(user.email).trim().toLowerCase() === normalizedEmail)) {
     throw createError("Пользователь с таким email уже зарегистрирован", 400);
   }
 
@@ -59,26 +64,34 @@ export function storageRegister(name, email, password) {
     id: createId(),
     name: String(name).trim(),
     email: normalizedEmail,
-    password,
+    password: normalizedPassword,
   };
 
   users.push(user);
-  writeJSON(USERS_KEY, users);
+
+  if (!writeJSON(USERS_KEY, users)) {
+    throw createError("Не удалось сохранить аккаунт: браузер блокирует localStorage", 500);
+  }
 
   return { user: toPublicUser(user) };
 }
 
 export function storageLogin(identifier, password) {
   const value = String(identifier).trim().toLowerCase();
+  const normalizedPassword = String(password).trim();
+
   const user = getUsers().find(
     (candidate) =>
-      (String(candidate.email).toLowerCase() === value ||
-        String(candidate.name).toLowerCase() === value) &&
-      candidate.password === password,
+      (String(candidate.email ?? "").trim().toLowerCase() === value ||
+        String(candidate.name ?? "").trim().toLowerCase() === value) &&
+      String(candidate.password ?? "").trim() === normalizedPassword,
   );
 
   if (!user) {
-    throw createError("Неверный email или пароль", 401);
+    throw createError(
+      "Неверный email, имя или пароль. Проверьте данные или зарегистрируйтесь.",
+      401,
+    );
   }
 
   return { user: toPublicUser(user) };

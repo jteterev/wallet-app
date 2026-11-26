@@ -3,7 +3,7 @@ import { useAuth } from "../context/AuthContext";
 import Header from "../components/Header";
 import { CATEGORY_LABELS, CATEGORY_COLORS } from "../constants/categories";
 import { SAMPLE_EXPENSES } from "../data/sampleExpenses";
-import { formatAmount } from "../utils/format";
+import { formatAmount, pluralRu } from "../utils/format";
 import {
   buildMonthGrid,
   buildPeriodMonths,
@@ -31,12 +31,22 @@ function readExpenses(user) {
   return storageGetExpenses(user.id);
 }
 
+/** Период по умолчанию — месяц последнего расхода. */
+function initialRange(expenses) {
+  const lastDate =
+    maxISODate(expenses.map((expense) => expense.date)) ?? toISODate();
+  const month = monthFromISODate(lastDate);
+
+  return {
+    start: month ? toISODateFromParts(month.year, month.month, 1) : lastDate,
+    end: lastDate,
+  };
+}
+
 export default function Analytics() {
   const { user } = useAuth();
   const [expenses] = useState(() => readExpenses(user));
-  const [selectedDate, setSelectedDate] = useState(
-    () => maxISODate(expenses.map((expense) => expense.date)) ?? toISODate(),
-  );
+  const [{ start, end }, setRange] = useState(() => initialRange(expenses));
 
   /** Сегодняшняя дата: ею ограничены и периоды, и выбор дня. */
   const today = useMemo(() => toISODate(), []);
@@ -53,24 +63,48 @@ export default function Analytics() {
     return buildPeriodMonths({ from, to });
   }, [expenses]);
 
-  const selectedMonth = monthFromISODate(selectedDate);
+  const selectedMonth = monthFromISODate(end);
   const selectedMonthRef = useRef(null);
 
   useEffect(() => {
-    selectedMonthRef.current?.scrollIntoView?.({ block: "nearest" });
+    selectedMonthRef.current?.scrollIntoView?.({ block: "start" });
   }, []);
 
-  const { total, totalsByCategory, maxCategoryTotal, dayCount } = useMemo(() => {
-    const dayExpenses = expenses.filter(
-      (expense) => expense.date === selectedDate,
+  /**
+   * Клик по дню: первый задаёт начало периода, второй — конец.
+   * Если период уже выбран, клик начинает новый.
+   */
+  function selectDate(isoDate) {
+    setRange((prev) => {
+      if (prev.start === prev.end) {
+        return isoDate < prev.start
+          ? { start: isoDate, end: prev.start }
+          : { start: prev.start, end: isoDate };
+      }
+
+      return { start: isoDate, end: isoDate };
+    });
+  }
+
+  const {
+    total,
+    totalsByCategory,
+    maxCategoryTotal,
+    expenseCount,
+    activeDays,
+  } = useMemo(() => {
+    const rangeExpenses = expenses.filter(
+      (expense) => expense.date >= start && expense.date <= end,
     );
 
     const totals = {};
+    const days = new Set();
     let sum = 0;
 
-    for (const expense of dayExpenses) {
+    for (const expense of rangeExpenses) {
       totals[expense.category] = (totals[expense.category] ?? 0) + expense.amount;
       sum += expense.amount;
+      days.add(expense.date);
     }
 
     return {
@@ -80,9 +114,18 @@ export default function Analytics() {
         ...CATEGORY_LABELS.map((label) => totals[label] ?? 0),
         1,
       ),
-      dayCount: dayExpenses.length,
+      expenseCount: rangeExpenses.length,
+      activeDays: days.size,
     };
-  }, [expenses, selectedDate]);
+  }, [expenses, start, end]);
+
+  const isSingleDay = start === end;
+  const periodTitle = isSingleDay
+    ? `Расходы за ${formatDateRu(start)}`
+    : `Расходы с ${formatDateRu(start)} по ${formatDateRu(end)}`;
+  const periodHint = isSingleDay
+    ? "Выберите вторую дату периода"
+    : "Кликните по дате, чтобы начать новый период";
 
   if (!user) return null;
 
@@ -95,69 +138,95 @@ export default function Analytics() {
           {/* Календарь */}
           <div className="card calendar-card">
             <h2 className="calendar-header">Период</h2>
+            <p className="calendar-hint">{periodHint}</p>
             <div className="weekdays">
               {WEEKDAYS.map((weekday) => (
                 <div key={weekday}>{weekday}</div>
               ))}
             </div>
-            {months.map(({ year, month }) => {
-              const isSelectedMonth =
-                selectedMonth !== null &&
-                selectedMonth.year === year &&
-                selectedMonth.month === month;
+            <div className="calendar-scroll">
+              {months.map(({ year, month }) => {
+                const isSelectedMonth =
+                  selectedMonth !== null &&
+                  selectedMonth.year === year &&
+                  selectedMonth.month === month;
 
-              return (
-                <div
-                  className="month-group"
-                  key={`${year}-${month}`}
-                  ref={isSelectedMonth ? selectedMonthRef : null}
-                >
-                  <div className="month-name">
-                    {MONTHS_RU[month]} {year}
-                  </div>
-                  <div className="calendar-grid">
-                    {buildMonthGrid(year, month).map((day, index) => {
-                      if (day === null) {
+                return (
+                  <div
+                    className="month-group"
+                    key={`${year}-${month}`}
+                    ref={isSelectedMonth ? selectedMonthRef : null}
+                  >
+                    <div className="month-name">
+                      {MONTHS_RU[month]} {year}
+                    </div>
+                    <div className="calendar-grid">
+                      {buildMonthGrid(year, month).map((day, index) => {
+                        if (day === null) {
+                          return (
+                            <div key={`empty-${index}`} className="calendar-day empty" />
+                          );
+                        }
+
+                        const isoDate = toISODateFromParts(year, month, day);
+                        const isRangeStart = isoDate === start;
+                        const isRangeEnd = isoDate === end;
+                        const isSelected = isRangeStart || isRangeEnd;
+                        const isInRange = isoDate > start && isoDate < end;
+                        const isToday = isoDate === today;
+                        const isFuture = isFutureISODate(isoDate, today);
+                        const edgeLabel =
+                          isRangeStart && !isRangeEnd
+                            ? ", начало периода"
+                            : isRangeEnd && !isRangeStart
+                              ? ", конец периода"
+                              : "";
+
                         return (
-                          <div key={`empty-${index}`} className="calendar-day empty" />
+                          <button
+                            key={isoDate}
+                            type="button"
+                            className={`calendar-day${
+                              isSelected ? " is-selected" : ""
+                            }${isInRange ? " is-in-range" : ""}${
+                              isToday ? " is-today" : ""
+                            }`}
+                            onClick={() => selectDate(isoDate)}
+                            disabled={isFuture}
+                            aria-pressed={isSelected}
+                            aria-current={isToday ? "date" : undefined}
+                            aria-label={`${formatDateRu(isoDate)}${edgeLabel}`}
+                            title={isFuture ? "Дата ещё не наступила" : undefined}
+                          >
+                            {day}
+                          </button>
                         );
-                      }
-
-                      const isoDate = toISODateFromParts(year, month, day);
-                      const isSelected = isoDate === selectedDate;
-                      const isToday = isoDate === today;
-                      const isFuture = isFutureISODate(isoDate, today);
-
-                      return (
-                        <button
-                          key={isoDate}
-                          type="button"
-                          className={`calendar-day${
-                            isSelected ? " is-selected" : ""
-                          }${isToday ? " is-today" : ""}`}
-                          onClick={() => setSelectedDate(isoDate)}
-                          disabled={isFuture}
-                          aria-pressed={isSelected}
-                          aria-current={isToday ? "date" : undefined}
-                          aria-label={formatDateRu(isoDate)}
-                          title={isFuture ? "Дата ещё не наступила" : undefined}
-                        >
-                          {day}
-                        </button>
-                      );
-                    })}
+                      })}
+                    </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
 
           {/* График */}
           <div className="card">
             <div className="chart-total">{formatAmount(total)}</div>
             <div className="chart-subtitle">
-              Расходы за {formatDateRu(selectedDate)}
-              {dayCount === 0 ? " — за этот день расходов нет" : ""}
+              {periodTitle}
+              {expenseCount === 0
+                ? isSingleDay
+                  ? " — за этот день расходов нет"
+                  : " — за этот период расходов нет"
+                : ` · ${expenseCount} ${pluralRu(expenseCount, [
+                    "расход",
+                    "расхода",
+                    "расходов",
+                  ])} за ${activeDays} ${pluralRu(activeDays, [
+                    "день",
+                    "дня",
+                    "дней",
+                  ])}`}
             </div>
             <div className="chart-placeholder">
               {CATEGORY_LABELS.map((label) => {

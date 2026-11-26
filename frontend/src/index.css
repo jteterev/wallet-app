@@ -513,8 +513,18 @@ a {
 
 /* Календарь */
 .calendar-card {
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   max-height: 540px;
+}
+
+/* Прокручивается только сетка месяцев: заголовок, подсказка и дни недели остаются на месте */
+.calendar-scroll {
+  overflow-x: hidden;
+  overflow-y: auto;
+  margin: 0 -24px;
+  padding: 0 24px 4px;
 }
 
 .calendar-header {
@@ -522,6 +532,14 @@ a {
   font-weight: 700;
   margin: 0 0 16px;
   color: var(--text);
+}
+
+.calendar-hint {
+  margin: -8px 0 16px;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.4;
+  color: var(--muted);
 }
 
 .weekdays {
@@ -580,12 +598,24 @@ a {
   background: var(--soft);
   color: var(--primary);
   font-weight: 600;
+  box-shadow: inset 0 0 0 2px var(--primary);
+}
+
+/* Дни между началом и концом выбранного периода */
+.calendar-day.is-in-range {
+  background: #f8f5ff;
+  color: var(--primary);
 }
 
 /* Сегодняшний день виден, даже если выбран другой */
 .calendar-day.is-today {
   box-shadow: inset 0 0 0 1px var(--primary);
   color: var(--primary);
+}
+
+/* Сегодняшний день внутри периода сохраняет обводку границы */
+.calendar-day.is-today.is-selected {
+  box-shadow: inset 0 0 0 2px var(--primary);
 }
 
 /* Будущие даты недоступны: период ограничен актуальной датой */

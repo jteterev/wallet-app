@@ -11,33 +11,48 @@ const EMPTY_ERRORS = { name: false, email: false, password: false };
 export default function Register() {
   const { register } = useAuth();
   const navigate = useNavigate();
-  const [name, setName] = useState("Ева Ива");
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [errors, setErrors] = useState(EMPTY_ERRORS);
+  const [formError, setFormError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   function clearError(field) {
     setErrors((prev) => (prev[field] ? { ...prev, [field]: false } : prev));
+    setFormError("");
   }
 
   async function handleSubmit(event) {
     event.preventDefault();
 
+    // Значения берём из самих полей: браузер может подставить их автозаполнением,
+    // и тогда состояние React отстаёт от того, что видит пользователь.
+    const data = new FormData(event.currentTarget);
+    const currentName = String(data.get("name") ?? name);
+    const currentEmail = String(data.get("email") ?? email);
+    const currentPassword = String(data.get("password") ?? password);
+
+    setName(currentName);
+    setEmail(currentEmail);
+    setPassword(currentPassword);
+
     const nextErrors = {
-      name: !name.trim(),
-      email: !email.trim() || !email.includes("@"),
-      password: password.trim().length < 6,
+      name: !currentName.trim(),
+      email: !currentEmail.includes("@"),
+      password: currentPassword.trim().length < 6,
     };
     setErrors(nextErrors);
+    setFormError("");
     if (nextErrors.name || nextErrors.email || nextErrors.password) return;
 
     setSubmitting(true);
     try {
-      await register(name, email, password);
+      await register(currentName, currentEmail, currentPassword);
       navigate("/expenses", { replace: true });
-    } catch {
+    } catch (error) {
       setErrors({ name: true, email: true, password: true });
+      setFormError(error?.message ?? "");
     } finally {
       setSubmitting(false);
     }
@@ -95,8 +110,8 @@ export default function Register() {
             />
             {hasErrors && (
               <div className="error-text" role="alert">
-                УПС! Введенные вами данные некорректны. Введите данные корректно
-                и повторите попытку.
+                {formError ||
+                  "УПС! Введенные вами данные некорректны. Введите данные корректно и повторите попытку."}
               </div>
             )}
             <PrimaryButton full type="submit" disabled={submitting}>
